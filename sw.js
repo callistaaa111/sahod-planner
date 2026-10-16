@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached on install; fonts are cached the first time they load.
-const CACHE = "sahod-v5";
+const CACHE = "sahod-v6";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "vendor/qrcode.min.js"];
 
 self.addEventListener("install", e => {
@@ -12,9 +12,9 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  // pages: network first so updates show up, cached copy when offline
+  // pages: always ask GitHub for the newest copy (skipping the browser's 10-minute copy), cached copy when offline
   if (req.mode === "navigate") {
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put("index.html", copy)); return r; })
+    e.respondWith(fetch(req, { cache: "no-cache" }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put("index.html", copy)); return r; })
       .catch(() => caches.match("index.html")));
     return;
   }

@@ -801,7 +801,9 @@ checkImportLink();
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && +today() !== +plan.T){ sel = today(); renderAll(true); } });
 // iPhones ignore user-scalable=no, so block pinch zoom directly
 ["gesturestart","gesturechange"].forEach(t=>document.addEventListener(t, e=>e.preventDefault(), {passive:false}));
-if("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+// when a new version takes over, reload once so it shows right away (not while a shared link is waiting to load)
+if("serviceWorker" in navigator && navigator.serviceWorker.controller){ let reloaded = false; navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(!reloaded && !pendingImport){ reloaded = true; location.reload(); } }); }
+if("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js", {updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}));
 </script>
 </body>
 </html>
