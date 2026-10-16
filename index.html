@@ -123,6 +123,21 @@ th:first-child,td:first-child{text-align:left}
 td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;font-family:var(--mono);white-space:nowrap}
 td:first-child{font-family:var(--body)}
 tr.short td{color:var(--warn)}
+/* phones: each cutoff becomes a small card, so nothing needs sideways scrolling */
+@media (max-width:520px){
+  .tbl table,.tbl tbody{display:block}
+  .tbl thead{display:none}
+  .tbl tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .tbl tr:last-child{border-bottom:0}
+  .tbl td{border:0;padding:0;display:flex;justify-content:space-between;gap:6px;min-width:0}
+  .tbl td::before{content:attr(data-l);font-family:var(--body);color:var(--muted);font-size:.74rem}
+  .tbl td:first-child{grid-column:1/-1;font-weight:700;padding-bottom:4px}
+  .tbl td:first-child::before{content:none}
+  .tbl td.food{grid-column:1/-1;font-weight:700;color:var(--accent)}
+  .tbl td.food::before{font-weight:600}
+  .tbl tr.short td.food{color:var(--warn)}
+}
+@media (max-width:360px){ .tbl tr{grid-template-columns:minmax(0,1fr)} }
 .list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 .list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:center}
 .list li:last-child{border-bottom:0}
@@ -616,8 +631,8 @@ function renderSummary(){
     : `<p class="hint">Nothing to keep aside before ${fmt(addDays(p0.end,1))}.</p>`;
   // cutoffs
   const show = P.slice(0, 9);
-  $("cutTable").innerHTML = `<table><thead><tr><th>Cutoff</th><th>Money in</th><th>Bills</th><th>Savings</th><th>Fare+other</th><th>Food/day</th></tr></thead><tbody>${
-    show.map((p,i)=>`<tr class="${p.rate<0?"short":""}"><td>${i===0?"Now":fmt(p.start)} – ${fmt(p.end)}</td><td>${peso(p.income)}</td><td>${peso(p.billTotal)}</td><td>${peso(p.saveTotal)}</td><td>${peso(p.fares+p.other)}</td><td>${p.rate<0?"short":peso(Math.floor(p.rate))}</td></tr>`).join("")
+  $("cutTable").innerHTML = `<table><thead><tr><th>Cutoff</th><th>Money in</th><th>Bills</th><th>Savings</th><th>Transport+other</th><th>Food/day</th></tr></thead><tbody>${
+    show.map((p,i)=>`<tr class="${p.rate<0?"short":""}"><td>${i===0?"Now":fmt(p.start)} – ${fmt(p.end)}</td><td data-l="Money in">${peso(p.income)}</td><td data-l="Bills">${peso(p.billTotal)}</td><td data-l="Savings">${peso(p.saveTotal)}</td><td data-l="Transport+other">${peso(p.fares+p.other)}</td><td data-l="Food/day" class="food">${p.rate<0?"short":peso(Math.floor(p.rate))}</td></tr>`).join("")
   }</tbody></table>${P.slice(0,9).some(p=>p.rate<0)?`<div class="msg bad" style="margin-top:10px">Some cutoffs don't have enough money for bills and savings. Lower a bill, pay it later, lower your savings %, or add extra income in Setup.</div>`:""}`;
   // debts & bills
   $("debtList").innerHTML = rows.length
