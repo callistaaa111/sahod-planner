@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Sahod Planner</title>
 <meta name="description" content="Plan your sahod: daily spending, bills, debts and savings until the next payday.">
 <meta name="theme-color" content="#fff8e7" media="(prefers-color-scheme: light)">
@@ -34,7 +34,8 @@
   --gold:#f6d77a; --gold-soft:#453917; --warn:#ff9e86; --warn-soft:#4a2620; --done:#7c6b74; color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.45;overflow-x:hidden;overscroll-behavior-y:none}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -107,7 +108,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .items li.pay{background:var(--gold-soft)}
 .log{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .field{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--muted);min-width:0}
-.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--fg);font-size:.95rem;min-width:0}
+.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--fg);font-size:16px;min-width:0}
 .field input[type=number]{font-family:var(--mono)}
 /* summary */
 .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -133,8 +134,8 @@ tr.short td{color:var(--warn)}
 .form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .form .full{grid-column:1/-1}
 .days{display:flex;gap:6px;flex-wrap:wrap}
-.days label{display:flex}
-.days input{position:absolute;opacity:0;pointer-events:none}
+.days label{display:flex;position:relative}
+.days input{position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;margin:0;padding:0}
 .days span{border:1px solid var(--line);border-radius:99px;padding:6px 11px;font-size:.84rem;background:var(--bg);cursor:pointer}
 .days input:checked + span{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .days input:focus-visible + span{outline:2px solid var(--accent);outline-offset:2px}
@@ -243,7 +244,7 @@ tr.short td{color:var(--warn)}
       <div class="card sec">
         <h3>Daily costs</h3>
         <div class="form">
-          <label class="field" for="fare">Fare per work day (round trip)<input id="fare" type="number" inputmode="decimal" min="0" placeholder="56"></label>
+          <label class="field" for="fare">Transportation<input id="fare" type="number" inputmode="decimal" min="0" placeholder="56"></label>
           <label class="field" for="other">Other per day (load, etc.)<input id="other" type="number" inputmode="decimal" min="0" placeholder="0"></label>
         </div>
         <div class="field">Work days
@@ -783,6 +784,8 @@ fillSetup(); bindSetup(); renderAll(true);
 try{ const t = localStorage.getItem(KEY+"-tab"); if(t && ["cal","sum","set"].includes(t)) showTab(t); }catch(e){}
 checkImportLink();
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && +today() !== +plan.T){ sel = today(); renderAll(true); } });
+// iPhones ignore user-scalable=no, so block pinch zoom directly
+["gesturestart","gesturechange"].forEach(t=>document.addEventListener(t, e=>e.preventDefault(), {passive:false}));
 if("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script>
 </body>
