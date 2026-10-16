@@ -147,6 +147,14 @@ tr.short td{color:var(--warn)}
 .tabs button[aria-selected="true"]{color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:99px;font-size:.84rem;max-width:calc(100% - 32px);z-index:6;transition:opacity .2s}
 @media (prefers-reduced-motion:reduce){.toast{transition:none}}
+/* moving to another phone */
+.more summary{cursor:pointer;font-weight:600;font-size:.88rem;color:var(--muted)}
+.sheet{position:fixed;inset:0;background:rgba(20,10,16,.55);display:flex;align-items:center;justify-content:center;padding:16px;z-index:10}
+.sheet-box{background:var(--surface);border-radius:16px;padding:18px;width:100%;max-width:380px;display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
+.qr{background:#fff;border-radius:12px;padding:10px;width:100%;max-width:320px;line-height:0}
+.qr svg{width:100%;height:auto;display:block}
+.imp{background:var(--accent-soft)}
+.imp .warn{color:var(--warn);font-weight:600}
 </style>
 
 <style>body{margin:0;-webkit-tap-highlight-color:transparent}.app{padding-top:calc(14px + env(safe-area-inset-top,0px))}</style>
@@ -161,6 +169,11 @@ tr.short td{color:var(--warn)}
   <div class="banner" id="banner" hidden>
     <div><b>These are example numbers.</b> Start fresh and add your own pay, bills and fare in Setup.</div>
     <div class="row"><button type="button" class="btn primary small" id="startFresh">Start with my own numbers</button></div>
+  </div>
+
+  <div class="banner imp" id="impBanner" hidden>
+    <div id="impText"></div>
+    <div class="row"><button type="button" class="btn primary small" id="impYes">Load these numbers</button><button type="button" class="btn small" id="impNo">Cancel</button></div>
   </div>
 
   <main>
@@ -266,11 +279,19 @@ tr.short td{color:var(--warn)}
       </div>
 
       <div class="card sec">
-        <h3>Backup and move to another phone</h3>
-        <p class="hint">Copy your backup code and paste it on another phone to bring all your numbers over.</p>
-        <label class="field" for="backup">Backup code<textarea id="backup" rows="3" spellcheck="false" placeholder="Paste a backup code here"></textarea></label>
-        <div class="row"><button type="button" class="btn" id="copyBk">Copy my backup code</button><button type="button" class="btn primary" id="restoreBk">Restore from code</button></div>
-        <p class="hint" id="bkMsg"></p>
+        <h3>Move to another phone</h3>
+        <p class="hint">Send all your numbers to another phone. Nothing is uploaded: your numbers travel inside the link or QR code itself.</p>
+        <div class="row"><button type="button" class="btn primary" id="shareBk">Share to another phone</button><button type="button" class="btn" id="qrBk">Show QR code</button></div>
+        <p class="hint" id="shMsg"></p>
+        <details class="more" id="bkMore">
+          <summary>Other ways (backup code)</summary>
+          <div class="sec" style="margin-top:10px">
+            <p class="hint">Using the home-screen app on an iPhone? Copy the link instead of opening it, and paste it here.</p>
+            <label class="field" for="backup">Backup code or link<textarea id="backup" rows="3" spellcheck="false" placeholder="Paste a backup code or link here"></textarea></label>
+            <div class="row"><button type="button" class="btn" id="copyBk">Copy my backup code</button><button type="button" class="btn primary" id="restoreBk">Restore from code</button></div>
+            <p class="hint" id="bkMsg"></p>
+          </div>
+        </details>
       </div>
 
       <div class="card sec">
@@ -289,6 +310,16 @@ tr.short td{color:var(--warn)}
   </div>
 </nav>
 <div class="toast" id="toast" hidden></div>
+<div class="sheet" id="qrSheet" hidden>
+  <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
+    <h3 id="qrTitle">Scan on the other phone</h3>
+    <div class="qr" id="qrBox"></div>
+    <p class="hint" id="qrNote">Open the camera on the other phone, point it at this code, then tap the link that shows up.</p>
+    <button type="button" class="btn primary" id="qrClose">Done</button>
+  </div>
+</div>
+
+<script src="vendor/qrcode.min.js"></script>
 
 <script>
 // ---------- helpers ----------
@@ -658,20 +689,41 @@ function bindSetup(){
     commit(); renderLists(); renderAll(false);
   };
   // backup
-  const encode = s => btoa(unescape(encodeURIComponent(JSON.stringify(s))));
-  $("copyBk").onclick = ()=>{
-    const code = encode(state); $("backup").value = code;
+  $("copyBk").onclick = async ()=>{
+    const code = await packState(); $("backup").value = code;
     const done = ()=>{ $("bkMsg").textContent = "Copied. Keep it somewhere safe, like a note to yourself."; };
     try{ navigator.clipboard.writeText(code).then(done, ()=>{ $("backup").select(); $("bkMsg").textContent = "Code shown above. Select it and copy."; }); }catch(e){ $("backup").select(); $("bkMsg").textContent = "Code shown above. Select it and copy."; }
   };
-  $("restoreBk").onclick = ()=>{
+  $("restoreBk").onclick = async ()=>{
     try{
-      const s = normalize(JSON.parse(decodeURIComponent(escape(atob($("backup").value.trim())))));
-      s.example = false; state = s; commit(); fillSetup(); renderAll(true);
+      loadState(await unpackState($("backup").value));
       $("bkMsg").textContent = "Restored. Your numbers are loaded.";
-      pushDb();
-    }catch(e){ $("bkMsg").textContent = "That code didn't work. Copy the whole code and try again."; }
+    }catch(e){ $("bkMsg").textContent = e.message === "old" ? "This phone's browser is too old to read that code. Update Chrome or Safari and try again." : "That code didn't work. Copy the whole code and try again."; }
   };
+  // share and QR
+  $("shareBk").onclick = async ()=>{
+    const url = await shareLink(), msg = $("shMsg");
+    if(navigator.share){
+      try{ await navigator.share({title:"Sahod Planner", text:"My Sahod Planner numbers. Open this link on the other phone to load them.", url}); msg.textContent = "Sent. On the other phone, open the link and tap Load these numbers."; return; }
+      catch(e){ if(e.name === "AbortError") return; }
+    }
+    try{ await navigator.clipboard.writeText(url); msg.textContent = "Link copied. Paste it in a chat or email, then open it on the other phone."; }
+    catch(e){ $("bkMore").open = true; $("backup").value = url; $("backup").select(); msg.textContent = "Copy the link from the box below and send it to the other phone."; }
+  };
+  $("qrBk").onclick = async ()=>{
+    const url = await shareLink(true), cut = ymd(addDays(today(), -60)), dropped = Object.keys(state.spent).some(k=>k < cut);
+    try{ const qr = qrcode(0, "L"); qr.addData(url, "Byte"); qr.make(); $("qrBox").innerHTML = qr.createSvgTag({cellSize:4, margin:4, scalable:true, alt:"QR code with your numbers"}); }
+    catch(e){ $("shMsg").textContent = "You have too many numbers to fit in a QR code. Use Share to another phone instead."; return; }
+    $("qrNote").textContent = "Open the camera on the other phone, point it at this code, then tap the link that shows up." + (dropped ? " Spending logs older than 60 days are left out; use Share to send everything." : "") + (url.length > 1500 ? " It's a big code, so turn your brightness up and hold the camera steady." : "");
+    $("qrSheet").hidden = false; $("qrClose").focus();
+  };
+  const closeQr = ()=>{ $("qrSheet").hidden = true; $("qrBox").innerHTML = ""; $("qrBk").focus(); };
+  $("qrClose").onclick = closeQr;
+  $("qrSheet").onclick = e=>{ if(e.target === $("qrSheet")) closeQr(); };
+  document.addEventListener("keydown", e=>{ if(e.key === "Escape" && !$("qrSheet").hidden) closeQr(); });
+  // opening a shared link
+  $("impYes").onclick = ()=>{ if(pendingImport){ loadState(pendingImport); pendingImport = null; toast("Numbers loaded"); } $("impBanner").hidden = true; };
+  $("impNo").onclick = ()=>{ pendingImport = null; $("impBanner").hidden = true; };
   $("clearAll").onclick = ()=>{
     const b = $("clearAll");
     if(b.dataset.arm){ state = BLANK(); commit(); fillSetup(); renderAll(true); $("clearMsg").textContent = "Cleared. Start by entering your pay."; delete b.dataset.arm; b.textContent = "Clear everything"; pushDb(); }
@@ -679,6 +731,44 @@ function bindSetup(){
   };
   $("startFresh").onclick = ()=>{ state = BLANK(); commit(); fillSetup(); renderAll(true); showTab("set"); };
 }
+
+// ---------- moving numbers to another phone ----------
+// A code is "z" + compressed JSON or "j" + plain JSON, in URL-safe base64. Older backup codes are plain base64 JSON.
+const b64u = bytes => { let s = ""; for(let i=0; i<bytes.length; i+=0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000)); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); };
+const unb64u = str => Uint8Array.from(atob(str.replace(/-/g,"+").replace(/_/g,"/")), c=>c.charCodeAt(0));
+const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+async function packState(recentOnly){
+  const s = Object.assign({}, state); delete s.example;
+  // for a QR code, leave out spending logs older than 60 days so the code stays small enough to scan
+  if(recentOnly){ const cut = ymd(addDays(today(), -60)); s.spent = Object.fromEntries(Object.entries(s.spent).filter(([k])=>k >= cut)); }
+  const raw = new TextEncoder().encode(JSON.stringify(s));
+  if(window.CompressionStream){ try{ return "z"+b64u(await pipe(raw, new CompressionStream("deflate-raw"))); }catch(e){} }
+  return "j"+b64u(raw);
+}
+async function unpackState(code){
+  code = String(code).trim();
+  const m = code.match(/[#&]import=([^&\s]+)/); if(m) code = m[1];
+  let json;
+  if(code[0] === "z"){ if(!window.DecompressionStream) throw new Error("old"); json = new TextDecoder().decode(await pipe(unb64u(code.slice(1)), new DecompressionStream("deflate-raw"))); }
+  else if(code[0] === "j") json = new TextDecoder().decode(unb64u(code.slice(1)));
+  else json = decodeURIComponent(escape(atob(code)));
+  const s = normalize(JSON.parse(json)); s.example = false; return s;
+}
+const shareLink = async recentOnly => location.origin + location.pathname + "#import=" + await packState(recentOnly);
+function loadState(s){ state = s; commit(); fillSetup(); renderAll(true); }
+let pendingImport = null;
+async function checkImportLink(){
+  const m = location.hash.match(/import=([^&]+)/); if(!m) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  try{ pendingImport = await unpackState(m[1]); }
+  catch(e){ toast(e.message === "old" ? "Update your browser to open this link" : "That link didn't work. Ask for a new one."); return; }
+  const p = pendingImport, inApp = /FBAN|FBAV|FB_IAB|Instagram|Line\/|Viber/i.test(navigator.userAgent);
+  const bits = [num(p.pay.amount) ? peso(num(p.pay.amount))+" pay" : "", p.bills.length+" bill"+(p.bills.length===1?"":"s"), p.updatedAt ? "saved "+fmtY(new Date(p.updatedAt)) : ""].filter(Boolean).join(" · ");
+  $("impText").innerHTML = `<b>Load numbers from another phone?</b> ${esc(bits)}.${state.example || (!num(state.pay.amount) && !state.bills.length) ? "" : " This replaces the numbers on this phone."}`
+    + (inApp ? `<div class="warn" style="margin-top:6px">You opened this inside a chat app. Open it in Chrome or Safari first (menu → Open in browser) so the numbers go to your app.</div>` : "");
+  $("impBanner").hidden = false; showTab("cal");
+}
+window.addEventListener("hashchange", checkImportLink);
 
 // ---------- tabs ----------
 function showTab(name){
@@ -691,6 +781,7 @@ function showTab(name){
 function renderAll(fill){ plan = buildPlan(); renderMoney(); renderCal(); renderDay(fill); renderSummary(); $("banner").hidden = !state.example; }
 fillSetup(); bindSetup(); renderAll(true);
 try{ const t = localStorage.getItem(KEY+"-tab"); if(t && ["cal","sum","set"].includes(t)) showTab(t); }catch(e){}
+checkImportLink();
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && +today() !== +plan.T){ sel = today(); renderAll(true); } });
 if("serviceWorker" in navigator && location.protocol !== "file:") window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script>

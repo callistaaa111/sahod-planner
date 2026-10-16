@@ -7,6 +7,7 @@ The Sahod Planner artifact, turned into an installable phone app (PWA). It works
 - `manifest.webmanifest`: app name, icon and colours used when you install it
 - `sw.js`: offline support (caches the app and fonts)
 - `icons/`: home-screen icons
+- `vendor/qrcode.min.js`: QR code generator ([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), MIT)
 
 ## Run it on this PC
 ```
@@ -19,7 +20,14 @@ Phones only install apps from an HTTPS site, so host this folder somewhere free 
 - **Android (Chrome):** open the link, tap ⋮ → **Install app** (or **Add to Home screen**).
 - **iPhone (Safari):** open the link, tap Share → **Add to Home Screen**.
 
+## Move your numbers to another phone
+In **Setup → Move to another phone**:
+- **Share to another phone** sends a link through Messenger, Viber, email and so on. Open it on the other phone in Chrome or Safari, then tap **Load these numbers**.
+- **Show QR code**: scan it with the other phone's camera, then tap the link. Spending logs older than 60 days are left out to keep the code scannable.
+
+Your numbers travel inside the link itself, after the `#`. That part never reaches GitHub's servers, so nothing is uploaded. Anyone you send the link to can load your numbers, though.
+
 ## Notes
-- Each phone keeps its own data. To move to another phone, use **Setup → Backup** to copy a code and paste it on the new phone.
+- Each phone keeps its own data.
 - The artifact's "Saved to your account" sync only works inside claude.ai, so this version saves on the phone only.
 - After you change `index.html`, raise `CACHE` in `sw.js` (for example `sahod-v2`) so installed phones pick up the update.
