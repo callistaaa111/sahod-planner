@@ -434,11 +434,19 @@ function incomeEvents(from, end){
   return ev.sort((a,b)=>a.date-b.date);
 }
 function buildPlan(){
-  const T = today(), END = addDays(T, 366);
+  const T = today();
   const hasCash = state.cash !== null && state.cash !== "" && isFinite(+state.cash);
   const cashDate = hasCash && state.cashDate ? parse(state.cashDate) : T;
   // logged spending is already out of the money now; add today's back so today's amount stays fixed for the whole day
   const money0 = hasCash ? +state.cash + num(state.spentAdj[ymd(T)]) : 0;
+  const plan = planFrom(T, money0, hasCash, cashDate);
+  // spending over today's amount comes out of the coming days right away, not just from tomorrow
+  const info = dayInfo(plan, T), spent = spentTotal(ymd(T));
+  if(hasCash && info && spent > info.total){ plan.over = spent - info.total; plan.ahead = planFrom(addDays(T,1), money0 - spent, hasCash, cashDate); }
+  return plan;
+}
+function planFrom(T, money0, hasCash, cashDate){
+  const END = addDays(T, 366);
 
   const starts = [T, ...paydays(addDays(T,1), END)];
   const periods = starts.map((s,i)=>({start:s, end: i+1<starts.length ? addDays(starts[i+1],-1) : END,
@@ -482,9 +490,9 @@ function buildPlan(){
 }
 function dayInfo(plan, d){
   if(d < plan.T || d > plan.END) return null;
-  const p = plan.periods[plan.pIdx(d)];
+  const pl = plan.ahead && d > plan.T ? plan.ahead : plan, p = pl.periods[pl.pIdx(d)];
   const food = Math.max(0, Math.floor(p.rate)), fare = fareOn(d), other = num(state.other);
-  return {p, food, fare, other, total: food+fare+other, short: p.rate < 0};
+  return {p, first: p === pl.periods[0], lowered: pl !== plan, food, fare, other, total: food+fare+other, short: p.rate < 0};
 }
 function eventsOn(plan, d){
   const k = ymd(d), ev = [];
@@ -564,9 +572,10 @@ function renderDay(fill){
         ${part("Other", info.other, num(sp.other), "load, etc.")}
       </div>`;
     if(info.short) h += `<div class="msg bad" style="margin-top:10px">Bills and savings in this cutoff are bigger than your money, so there's nothing left for food. Check the Summary tab to see where it falls short.</div>`;
-    else if(p.keep > 0 && p === plan.periods[0]) h += `<div class="msg ok" style="margin-top:10px">Keep ${peso(p.keep)} untouched for bills in the coming cutoffs. It's already left out of today's amount.</div>`;
+    else if(p.keep > 0 && info.first) h += `<div class="msg ok" style="margin-top:10px">Keep ${peso(p.keep)} untouched for bills in the coming cutoffs. It's already left out of ${isToday?"today's":"this day's"} amount.</div>`;
+    if(info.lowered && !info.short) h += `<div class="msg bad" style="margin-top:10px">Lowered because you went ${peso(plan.over)} over today's amount.</div>`;
     h += `<p class="hint" style="margin-top:8px">${p.days} day${p.days>1?"s":""} in this stretch · next payday ${fmt(nextPay)}</p>`;
-    if(!plan.hasCash && p === plan.periods[0]) h += `<div class="msg bad" style="margin-top:8px">Enter the money you have now (at the top) so today's amount is right.</div>`;
+    if(!plan.hasCash && info.first) h += `<div class="msg bad" style="margin-top:8px">Enter the money you have now (at the top) so today's amount is right.</div>`;
     if(isToday && plan.hasCash) h += howWorkedOut(p, info);
   } else {
     const t = spentTotal(k);
@@ -594,7 +603,7 @@ function renderDay(fill){
   const t = spentTotal(k), note = $("logNote"), counts = plan.hasCash && k >= state.cashDate;
   if(info && isToday){
     const left = info.total - t;
-    note.textContent = t ? (left >= 0 ? `Taken out of your money now. ${peso(left)} left for today; anything you don't spend makes the coming days a little higher.` : `Taken out of your money now. ${peso(-left)} over today's amount, so the coming days will be a little lower from tomorrow.`) : "Type what you spend. It comes out of your money now and today's amount right away.";
+    note.textContent = t ? (left >= 0 ? `Taken out of your money now. ${peso(left)} left for today; anything you don't spend makes the coming days a little higher.` : `Taken out of your money now. ${peso(-left)} over today's amount, so the days ahead on the calendar are lowered to cover it.`) : "Type what you spend. It comes out of your money now and today's amount right away.";
   } else if(isPast) note.textContent = counts ? (t ? "Taken out of your money now." : "Log it here and it comes out of your money now.") : (t ? "Logged. This was before you last typed in your money, so it isn't taken out again." : "This is before you last typed in your money, so anything logged here is just for your records.");
   else note.textContent = "";
 }
