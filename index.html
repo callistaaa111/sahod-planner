@@ -231,7 +231,7 @@ tr.short td{color:var(--warn)}
     <section class="tab" id="tab-sum" role="tabpanel" aria-label="Summary" hidden>
       <div class="stats" id="stats"></div>
       <div class="card"><h3>Keep aside right now</h3><div id="holdNow"></div></div>
-      <div class="card"><h3>Each cutoff</h3><div class="tbl" id="cutTable"></div><p class="hint" style="margin-top:8px">Food per day is what's left after bills, savings, fare and other daily costs. Money from a lighter cutoff is kept for a heavier one so food stays even.</p></div>
+      <div class="card"><h3>Each cutoff</h3><div class="tbl" id="cutTable"></div><p class="hint" style="margin-top:8px">Bills are split across the paydays before they're due. With pay twice a month, a ₱12,000 rent needs ₱6,000 from each pay. Food per day is what's left after bills, savings, transportation and other daily costs.</p></div>
       <div class="card"><h3>Debts and bills</h3><div id="debtList"></div></div>
       <div class="card"><h3>Savings</h3><div id="saveBox"></div></div>
     </section>
@@ -395,6 +395,7 @@ function commit(){ state.updatedAt = Date.now(); saveLocal(); }
 try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 
 // ---------- planning engine ----------
+const sumAmt = a => a.reduce((s,x)=>s+x.amount,0);
 const fareOn = d => state.workdays.includes(d.getDay()) ? num(state.fare) : 0;
 const spentTotal = k => { const s = state.spent[k]; return s ? num(s.food)+num(s.fare)+num(s.other) : 0; };
 function paydays(from, to){
@@ -444,30 +445,53 @@ function buildPlan(){
     saveEvents.push(sv);
     if(!state.paid[sv.key]) p.saves.push(sv);
   });
-  // bills from the day the money was last updated (earlier ones are treated as settled)
-  const billOcc = [];
-  state.bills.forEach(b=>occurrences(b, END).forEach(o=>{
+  // bills from the day the money was last updated (earlier ones are treated as settled).
+  // Each bill is split evenly across the paydays since it was last due, so a ₱12,000 rent with pay
+  // twice a month takes ₱6,000 from each pay. Parts from paydays already past are expected in the money you have now.
+  const billOcc = [], allPays = paydays(addDays(T,-400), END);
+  state.bills.forEach(b=>{ const occ = occurrences(b, END); occ.forEach((o,i)=>{
     if(o.date < cashDate) return;
     billOcc.push(o);
-    if(!state.paid[o.key]) periods[pIdx(o.date)].bills.push(o);
-  }));
+    if(state.paid[o.key]) return;
+    const prev = i > 0 ? occ[i-1].date : (b.repeat === "once" ? addDays(T,-1) : clampDate(o.date.getFullYear(), o.date.getMonth()-1, o.date.getDate()));
+    let slots = o.date < T ? [0] : allPays.filter(w => w > prev && w <= o.date).map(w => w <= T ? 0 : pIdx(w));
+    if(o.date >= T && prev < T && !slots.includes(0)) slots.unshift(0);
+    if(!slots.length) slots = [pIdx(o.date)];
+    const per = new Map(); slots.forEach(pi=>per.set(pi, (per.get(pi)||0)+1));
+    const order = [...per.keys()].sort((a,b)=>a-b);
+    order.forEach((pi,k)=>periods[pi].bills.push({key:o.key, name:o.name, date:o.date, full:o.amount, amount:o.amount*per.get(pi)/slots.length, parts:order.length, later:order.slice(k+1)}));
+  }); });
   const sum = a => a.reduce((s,x)=>s+x.amount,0);
+  const refresh = p => { p.billTotal = sum(p.bills); p.free = p.income - p.billTotal - p.saveTotal - p.fares - p.other; };
   periods.forEach(p=>{
     p.days = dayDiff(p.start,p.end)+1;
     for(let d = new Date(p.start); d <= p.end; d = addDays(d,1)) p.fares += fareOn(d);
     p.other = p.days*num(state.other);
-    p.billTotal = sum(p.bills); p.saveTotal = sum(p.saves);
-    p.free = p.income - p.billTotal - p.saveTotal - p.fares - p.other;
+    p.saveTotal = sum(p.saves); refresh(p);
   });
-  // keep food even: money can be kept for later cutoffs, never borrowed from them
-  for(let i=0; i<periods.length;){
-    let best = Infinity, bj = i, S = 0, D = 0;
-    for(let j=i; j<periods.length; j++){ S += periods[j].free; D += periods[j].days; if(S/D < best-1e-9){ best = S/D; bj = j; } }
-    let carry = 0;
-    for(let k=i; k<=bj; k++){ const p = periods[k]; p.rate = best; carry += p.free - best*p.days; p.keep = Math.max(0, Math.round(carry)); }
-    i = bj+1;
-  }
-  return {T, END, hasCash, cashDate, money0, periods, pIdx, saveEvents, billOcc};
+  // if a cutoff can't afford its part of a bill, move some of that part to a later payday before the bill is due,
+  // just enough to even out food between the two cutoffs
+  periods.forEach(p=>p.bills.forEach(s=>{
+    s.later.forEach(j=>{
+      const q = periods[j], gap = q.free/q.days - p.free/p.days;
+      if(p.free >= 0 || gap <= 0 || s.amount <= 0) return;
+      const x = Math.min(s.amount, gap*p.days*q.days/(p.days+q.days));
+      s.amount -= x; refresh(p);
+      const t = q.bills.find(y=>y.key === s.key); if(t) t.amount += x; else q.bills.push({...s, amount:x, later:[]});
+      refresh(q);
+    });
+  }));
+  // a normal day's food comes from a regular cutoff. Money above that (a big balance now, a bonus) is "extra":
+  // it isn't needed for bills or daily costs, and it stays available if a later cutoff runs short.
+  const regular = periods.slice(1, 7).filter(p => p.days >= 7 && !p.incomes.some(ev => ev.key.startsWith("inc@"))).map(p => p.free/p.days).sort((a,b)=>a-b);
+  const normal = regular.length ? Math.max(0, regular[Math.floor(regular.length/2)]) : Infinity;
+  let carry = 0;
+  periods.forEach(p=>{
+    const avail = p.free + carry, r = avail/p.days;
+    if(r > normal){ p.rate = normal; carry = avail - normal*p.days; } else { p.rate = r; carry = 0; }
+    p.extra = Math.max(0, Math.round(carry));
+  });
+  return {T, END, hasCash, cashDate, money0, periods, pIdx, saveEvents, billOcc, normal};
 }
 function dayInfo(plan, d){
   if(d < plan.T || d > plan.END) return null;
@@ -548,7 +572,12 @@ function renderDay(fill){
         <div><span class="k">Other</span><b>${peso(info.other)}</b><small>load, etc.</small></div>
       </div>`;
     if(info.short) h += `<div class="msg bad" style="margin-top:10px">Bills and savings in this cutoff are bigger than your money, so there's nothing left for food. Check the Summary tab to see where it falls short.</div>`;
-    else if(p.keep > 0 && p === plan.periods[0]) h += `<div class="msg ok" style="margin-top:10px">Keep ${peso(p.keep)} untouched for bills in the coming cutoffs. It's already left out of today's amount.</div>`;
+    else {
+      // money set aside now for bills that are due after the next payday
+      const ahead = p === plan.periods[0] ? p.bills.filter(s=>s.date > p.end && s.amount >= 1) : [];
+      if(ahead.length) h += `<div class="msg ok" style="margin-top:10px">Keep ${peso(sumAmt(ahead))} for coming bills: ${ahead.map(s=>esc(s.name)+" "+peso(s.amount)+" (due "+fmt(s.date)+")").join(", ")}. It's already left out of today's amount.</div>`;
+      if(p.extra > 0 && p === plan.periods[0]) h += `<div class="msg ok" style="margin-top:10px">You have ${peso(p.extra)} extra, more than you need for bills and daily costs until ${fmt(nextPay)}. Move it to savings or keep it as a buffer.</div>`;
+    }
     h += `<p class="hint" style="margin-top:8px">${p.days} day${p.days>1?"s":""} in this stretch · next payday ${fmt(nextPay)}</p>`;
     if(!plan.hasCash && p === plan.periods[0]) h += `<div class="msg bad" style="margin-top:8px">Enter the money you have now (at the top) so today's amount is right.</div>`;
   } else {
@@ -570,7 +599,13 @@ function renderDay(fill){
     }
     ul.appendChild(li);
   });
-  ul.hidden = !ev.length;
+  // on a future payday: how much of this pay goes to each bill
+  if(info && info.p !== plan.periods[0] && +info.p.start === +d) info.p.bills.filter(s=>s.amount >= 1).forEach(s=>{
+    const li = document.createElement("li"); li.className = "info";
+    li.innerHTML = `<span>From this pay: ${esc(s.name)}<small>Due ${fmt(s.date)}${s.amount < s.full - 0.5 ? " · part of "+peso(s.full) : ""}</small></span><span class="amt">${peso(s.amount)}</span>`;
+    ul.appendChild(li);
+  });
+  ul.hidden = !ul.children.length;
   // log
   const lw = $("logWrap"); lw.hidden = d > T;
   if(fill){ const s = state.spent[k] || {}; $("logFood").value = s.food ?? ""; $("logFare").value = s.fare ?? ""; $("logOther").value = s.other ?? ""; }
@@ -620,15 +655,17 @@ function renderSummary(){
     <div class="stat"><span class="k">Next payday</span><b>${nextPayP?fmt(nextPayP.start):"—"}</b><small>${nextPayP?peso(nextPayP.income)+" coming in":"set your pay in Setup"}</small></div>
     <div class="stat"><span class="k">Debt left</span><b>${peso(debtLeft)}</b><small>${debtEnd?"debt-free by "+fmtY(debtEnd):"no debts with an end date"}</small></div>`;
   // keep aside now
-  const hold = [...p0.bills.map(o=>({name:o.name, amount:o.amount, when:(o.date<T?"Overdue since ":"Due ")+fmt(o.date), late:o.date<T})),
+  const nextPayDay = fmt(addDays(p0.end,1));
+  const hold = [...p0.bills.filter(s=>s.amount >= 1).map(s=>({name:s.name, amount:s.amount, late:s.date<T,
+      when:(s.date<T?"Overdue since ":"Due ")+fmt(s.date)+(s.amount < s.full-0.5 ? " · the rest "+peso(s.full-s.amount)+" comes from later pay" : "")})),
     ...p0.saves.map(s=>({name:s.name, amount:s.amount, when:"Move to savings"}))];
-  if(p0.keep > 0) hold.push({name:"Keep for coming cutoffs' bills", amount:p0.keep, when:"Don't touch until "+fmt(addDays(p0.end,1))});
   const holdSum = hold.reduce((s,x)=>s+x.amount,0);
+  const extraNote = p0.extra > 0 ? ` ${peso(p0.extra)} of that is extra, more than you need until then: move it to savings or keep it as a buffer.` : "";
   $("holdNow").innerHTML = hold.length
     ? `<ul class="list">${hold.map(x=>`<li><span>${esc(x.name)}<small style="${x.late?"color:var(--warn)":""}">${x.when}</small></span><span class="amt">${peso(x.amount)}</span></li>`).join("")}</ul>
        <div class="total"><span>Total to keep aside</span><span>${peso(holdSum)}</span></div>
-       <p class="hint" style="margin-top:6px">${plan.hasCash ? "From your "+peso(plan.money0)+", that leaves "+peso(Math.max(0,plan.money0-holdSum))+" for fare, food and other costs until "+fmt(addDays(p0.end,1))+"." : "Enter your money now to see what's left."}</p>`
-    : `<p class="hint">Nothing to keep aside before ${fmt(addDays(p0.end,1))}.</p>`;
+       <p class="hint" style="margin-top:6px">${plan.hasCash ? "From your "+peso(plan.money0)+", that leaves "+peso(Math.max(0,plan.money0-holdSum))+" for fare, food and other costs until "+nextPayDay+"."+extraNote : "Enter your money now to see what's left."}</p>`
+    : `<p class="hint">Nothing to keep aside before ${nextPayDay}.${plan.hasCash ? extraNote : ""}</p>`;
   // cutoffs
   const show = P.slice(0, 9);
   $("cutTable").innerHTML = `<table><thead><tr><th>Cutoff</th><th>Money in</th><th>Bills</th><th>Savings</th><th>Transport+other</th><th>Food/day</th></tr></thead><tbody>${
