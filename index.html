@@ -97,6 +97,19 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .trio small{display:block;font-size:.7rem;color:var(--muted)}
 .msg{border-radius:9px;padding:9px 12px;font-size:.88rem}
 .msg.ok{background:var(--accent-soft)} .msg.bad{background:var(--warn-soft)}
+.aside{margin-top:10px;background:var(--accent-soft);border-radius:9px;padding:2px 12px;font-size:.86rem}
+.aside-row + .aside-row{border-top:1px solid var(--line)}
+div.aside-row,.aside summary{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0}
+details.aside-row{display:block}
+.aside summary{cursor:pointer;list-style:none}
+.aside summary::-webkit-details-marker{display:none}
+.aside summary span::after{content:" ›";color:var(--muted)}
+.aside details[open] summary span::after{content:" ⌄"}
+.aside b{font-family:var(--mono);font-weight:500;white-space:nowrap}
+.aside small{color:var(--muted);font-size:.74rem}
+.aside ul{list-style:none;margin:0 0 6px;padding:0;display:flex;flex-direction:column;gap:3px;font-size:.8rem}
+.aside li{display:flex;justify-content:space-between;gap:10px}
+.aside li span:last-child{font-family:var(--mono);white-space:nowrap}
 .items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .items li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;background:var(--bg);border-radius:9px;padding:8px 10px}
 .items li.info{grid-template-columns:minmax(0,1fr) auto}
@@ -599,8 +612,12 @@ function renderDay(fill){
     else {
       // money set aside now for bills that are due after the next payday
       const ahead = info.first ? p.bills.filter(s=>s.date > p.end && s.amount >= 1) : [];
-      if(ahead.length) h += `<div class="msg ok" style="margin-top:10px">Keep ${peso(sumAmt(ahead))} for coming bills: ${ahead.map(s=>esc(s.name)+" "+peso(s.amount)+" (due "+fmt(s.date)+")").join(", ")}. It's already left out of ${isToday?"today's":"this day's"} amount.</div>`;
-      if(p.extra > 0 && info.first) h += `<div class="msg ok" style="margin-top:10px">You have ${peso(p.extra)} extra, more than you need for bills and daily costs until ${fmt(nextPay)}. Move it to savings or keep it as a buffer.</div>`;
+      // one small box: bills to set aside (tap for the list) and extra money
+      let rows = "";
+      if(ahead.length) rows += `<details class="aside-row"><summary><span>Set aside for ${ahead.length} bill${ahead.length>1?"s":""}</span><b>${peso(sumAmt(ahead))}</b></summary>
+        <ul>${ahead.map(s=>`<li><span>${esc(s.name)} <small>due ${fmt(s.date)}</small></span><span>${peso(s.amount)}</span></li>`).join("")}</ul></details>`;
+      if(p.extra > 0 && info.first) rows += `<div class="aside-row"><span>Extra <small>save it or keep as a buffer</small></span><b>${peso(p.extra)}</b></div>`;
+      if(rows) h += `<div class="aside">${rows}</div>`;
     }
     if(info.lowered && !info.short) h += `<div class="msg bad" style="margin-top:10px">Lowered because you went ${peso(plan.over)} over today's amount.</div>`;
     h += `<p class="hint" style="margin-top:8px">${p.days} day${p.days>1?"s":""} in this stretch · next payday ${fmt(nextPay)}</p>`;
