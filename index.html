@@ -487,7 +487,8 @@ function planFrom(T, money0, hasCash, cashDate){
     if(state.paid[o.key]) return;
     const prev = i > 0 ? occ[i-1].date : (b.repeat === "once" ? addDays(T,-1) : clampDate(o.date.getFullYear(), o.date.getMonth()-1, o.date.getDate()));
     let slots = o.date < T ? [0] : allPays.filter(w => w > prev && w <= o.date).map(w => w <= T ? 0 : pIdx(w));
-    if(o.date >= T && prev < T && !slots.includes(0)) slots.unshift(0);
+    // a one-time bill can also use the money you have now; a monthly bill only uses the paydays since it was last due
+    if(b.repeat === "once" && o.date >= T && !slots.includes(0)) slots.unshift(0);
     if(!slots.length) slots = [pIdx(o.date)];
     const per = new Map(); slots.forEach(pi=>per.set(pi, (per.get(pi)||0)+1));
     const order = [...per.keys()].sort((a,b)=>a-b);
@@ -501,24 +502,22 @@ function planFrom(T, money0, hasCash, cashDate){
     p.other = p.days*num(state.other);
     p.saveTotal = sum(p.saves); refresh(p);
   });
-  // if a cutoff can't afford its part of a bill, move some of that part to a later payday before the bill is due,
-  // just enough to even out food between the two cutoffs
-  periods.forEach(p=>p.bills.forEach(s=>{
-    s.later.forEach(j=>{
-      const q = periods[j], gap = q.free/q.days - p.free/p.days;
-      if(p.free >= 0 || gap <= 0 || s.amount <= 0) return;
-      const x = Math.min(s.amount, gap*p.days*q.days/(p.days+q.days));
-      s.amount -= x; refresh(p);
-      const t = q.bills.find(y=>y.key === s.key); if(t) t.amount += x; else q.bills.push({...s, amount:x, later:[]});
-      refresh(q);
-    });
-  }));
   // a normal day's food comes from a regular cutoff. Money above that (a big balance now, a bonus) is "extra":
   // it isn't needed for bills or daily costs, and it stays available if a later cutoff runs short.
   const regular = periods.slice(1, 7).filter(p => p.days >= 7 && !p.incomes.some(ev => ev.key.startsWith("inc@"))).map(p => p.free/p.days).sort((a,b)=>a-b);
   const normal = regular.length ? Math.max(0, regular[Math.floor(regular.length/2)]) : Infinity;
   let carry = 0;
   periods.forEach(p=>{
+    // if a cutoff can't afford its part of a bill, even with extra money from before, move some of that part
+    // to a later payday before the bill is due, just enough to even out food between the two cutoffs
+    p.bills.forEach(s=>s.later.forEach(j=>{
+      const q = periods[j], gap = q.free/q.days - (p.free+carry)/p.days;
+      if(p.free + carry >= 0 || gap <= 0 || s.amount <= 0) return;
+      const x = Math.min(s.amount, gap*p.days*q.days/(p.days+q.days));
+      s.amount -= x; refresh(p);
+      const t = q.bills.find(y=>y.key === s.key); if(t) t.amount += x; else q.bills.push({...s, amount:x, later:[]});
+      refresh(q);
+    }));
     const avail = p.free + carry, r = avail/p.days;
     if(r > normal){ p.rate = normal; carry = avail - normal*p.days; } else { p.rate = r; carry = 0; }
     p.extra = Math.max(0, Math.round(carry));
@@ -732,7 +731,7 @@ function renderSummary(){
     ? `<ul class="list">${hold.map(x=>`<li><span>${esc(x.name)}<small style="${x.late?"color:var(--warn)":""}">${x.when}</small></span><span class="amt">${peso(x.amount)}</span></li>`).join("")}</ul>
        <div class="total"><span>Total to keep aside</span><span>${peso(holdSum)}</span></div>
        <p class="hint" style="margin-top:6px">${plan.hasCash ? "From your "+peso(+state.cash)+", that leaves "+peso(Math.max(0,+state.cash-holdSum))+" for fare, food and other costs until "+nextPayDay+"."+extraNote : "Enter your money now to see what's left."}</p>`
-    : `<p class="hint">Nothing to keep aside before ${nextPayDay}.${plan.hasCash ? extraNote : ""}</p>`;
+    : `<p class="hint">Nothing to keep aside before ${nextPayDay}.${plan.hasCash && p0.extra > 0 ? ` You have ${peso(p0.extra)} extra: move it to savings or keep it as a buffer.` : ""}</p>`;
   // cutoffs
   const show = P.slice(0, 9);
   $("cutTable").innerHTML = `<table><thead><tr><th>Cutoff</th><th>Money in</th><th>Bills</th><th>Savings</th><th>Transport+other</th><th>Food/day</th></tr></thead><tbody>${
