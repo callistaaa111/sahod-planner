@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached on install; fonts are cached the first time they load.
-const CACHE = "sahod-v13";
+const CACHE = "sahod-v14";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "vendor/qrcode.min.js"];
 
 self.addEventListener("install", e => {
@@ -13,9 +13,11 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   // pages: always ask GitHub for the newest copy (skipping the browser's 10-minute copy), cached copy when offline
+  // other pages (privacy.html) are cached under their own address so they never replace the app
   if (req.mode === "navigate") {
-    e.respondWith(fetch(req, { cache: "no-cache" }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put("index.html", copy)); return r; })
-      .catch(() => caches.match("index.html")));
+    const isApp = /\/(index\.html)?$/.test(url.pathname), key = isApp ? "index.html" : req;
+    e.respondWith(fetch(req, { cache: "no-cache" }).then(r => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(key, copy)); } return r; })
+      .catch(() => caches.match(key).then(hit => hit || caches.match("index.html"))));
     return;
   }
   const isFont = url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com";
