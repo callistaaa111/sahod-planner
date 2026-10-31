@@ -70,6 +70,17 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .money-in input{font-family:var(--num);font-weight:600;font-size:1.4rem;border:0;background:transparent;width:100%;padding:2px 0;min-width:0}
 .money-in input:focus-visible{outline:none}
 .money-in:focus-within{border-color:var(--accent)}
+.money .row{flex-wrap:nowrap;gap:10px}
+.plus{width:34px;height:34px;flex:none;border:0;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:1.35rem;line-height:1}
+.plus[aria-expanded="true"]{background:var(--accent);color:var(--on-accent)}
+/* money I received: opens under money now with the + button, same line style a size down */
+.got{margin-top:10px}
+.got label{color:var(--accent)}
+.got .money-in{width:5.5em}
+.got .money-in span{font-size:1.05rem}
+.got .money-in input{font-size:1.15rem;font-weight:500;padding:4px 0}
+.got .btn{padding:7px 16px}
+#addErr:empty{display:none}
 /* calendar */
 .cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .cal-head h2{font-size:1.05rem;font-weight:600;margin:0}
@@ -227,8 +238,13 @@ tr.short td{color:var(--warn)}
       <div class="card">
         <div class="money">
           <label for="cashNow">Money I have now</label>
-          <div class="money-in"><span>₱</span><input id="cashNow" type="number" inputmode="decimal" min="0" placeholder="0"></div>
+          <div class="row"><div class="money-in"><span>₱</span><input id="cashNow" type="number" inputmode="decimal" min="0" placeholder="0"></div><button type="button" class="plus" id="addOpen" aria-label="Add money I received" aria-expanded="false" aria-controls="gotRow">+</button></div>
         </div>
+        <div class="money got" id="gotRow" hidden>
+          <label for="addAmt">+ Received</label>
+          <div class="row"><div class="money-in"><span>₱</span><input id="addAmt" type="number" inputmode="decimal" min="0" placeholder="0"></div><button type="button" class="btn primary" id="addBtn">Add</button></div>
+        </div>
+        <p class="hint" id="addErr"></p>
         <p class="hint" id="cashHint" style="margin-top:6px"></p>
         <div id="logWrap" style="margin-top:14px">
           <div class="k" style="margin-bottom:6px">What I spent this day</div>
@@ -695,6 +711,23 @@ $("cashNow").addEventListener("input", e=>{
   const t = spentTotal(state.cashDate); state.spentAdj = t ? {[state.cashDate]: t} : {};
   commit(); plan = buildPlan(); renderMoney(); renderCal(); renderDay(false); renderSummary();
 });
+// adding received money is the same as typing the new total, so a payday already passed isn't counted twice
+function addReceived(){
+  const amt = num($("addAmt").value);
+  if(!(amt > 0)){ $("addErr").textContent = "Type how much you received."; return; }
+  const inp = $("cashNow");
+  inp.value = Math.round((num(state.cash) + amt)*100)/100;
+  inp.dispatchEvent(new Event("input"));
+  $("addAmt").value = ""; showAdd(false);
+  toast(peso(amt)+" added to your money now");
+}
+function showAdd(on){
+  $("gotRow").hidden = !on; $("addOpen").setAttribute("aria-expanded", String(on)); $("addErr").textContent = "";
+  if(on) $("addAmt").focus();
+}
+$("addOpen").onclick = ()=>showAdd($("gotRow").hidden);
+$("addBtn").onclick = addReceived;
+$("addAmt").addEventListener("keydown", e=>{ if(e.key === "Enter") addReceived(); });
 $("prevM").onclick = ()=>{ view = new Date(view.getFullYear(), view.getMonth()-1, 1); renderCal(); };
 $("nextM").onclick = ()=>{ view = new Date(view.getFullYear(), view.getMonth()+1, 1); renderCal(); };
 
