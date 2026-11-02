@@ -560,15 +560,21 @@ function eventsOn(plan, d){
 }
 
 // ---------- ticking bills and savings ----------
+// a one-time bill is finished once it's ticked, or when it was due before the money was last typed in (treated as paid).
+// Finished ones leave the bill lists but stay on the calendar, so a wrong tick can still be undone there.
+const billDone = b => b.repeat === "once" && (!!state.paid[b.id+"@"+b.start] || (!!state.cashDate && b.start < state.cashDate));
 function togglePaid(key, amount, date, on){
+  let msg = "";
   if(on){
     state.paid[key] = true;
-    if(state.cash !== null && state.cashDate && date >= parse(state.cashDate)){ state.cash = Math.round((+state.cash - amount)*100)/100; state.paidAdj[key] = amount; toast(peso(amount)+" taken out of your money now"); }
+    if(state.cash !== null && state.cashDate && date >= parse(state.cashDate)){ state.cash = Math.round((+state.cash - amount)*100)/100; state.paidAdj[key] = amount; msg = peso(amount)+" taken out of your money now"; }
   } else {
     delete state.paid[key];
-    if(state.paidAdj[key] != null){ state.cash = Math.round((+state.cash + state.paidAdj[key])*100)/100; delete state.paidAdj[key]; toast(peso(amount)+" put back into your money now"); }
+    if(state.paidAdj[key] != null){ state.cash = Math.round((+state.cash + state.paidAdj[key])*100)/100; delete state.paidAdj[key]; msg = peso(amount)+" put back into your money now"; }
   }
-  commit(); renderAll(false);
+  if(state.bills.some(b => b.repeat === "once" && key === b.id+"@"+b.start)) msg = (msg ? msg+". " : "") + (on ? "Removed from your bills list" : "Back on your bills list");
+  if(msg) toast(msg);
+  commit(); renderLists(); renderAll(false);
 }
 let toastT;
 function toast(t){ const el = $("toast"); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(()=>{ el.hidden = true; }, 2600); }
@@ -740,7 +746,7 @@ function renderSummary(){
   // debts: finite schedules (rent with no end is a bill, not a debt)
   const FAR = addDays(T, 365*5);
   let debtLeft = 0, debtEnd = null;
-  const rows = state.bills.map(b=>{
+  const rows = state.bills.filter(b=>!billDone(b)).map(b=>{
     const occ = occurrences(b, b.repeat==="once" || num(b.count)>0 ? FAR : addDays(T,62)).filter(o=>o.date >= plan.cashDate && !state.paid[o.key]);
     const finite = b.repeat==="once" || num(b.count)>0;
     const left = occ.reduce((s,o)=>s+o.amount,0);
@@ -778,7 +784,7 @@ function renderSummary(){
   $("debtList").innerHTML = rows.length
     ? `<ul class="list">${rows.map(r=>`<li><span><b>${esc(r.b.name)}</b><small>${peso(num(r.b.amount))} ${r.b.repeat==="once"?"one time":"a month"}${r.next?", next "+fmt(r.next):", done"}${r.finite&&r.occ.length?", "+r.occ.length+" payment"+(r.occ.length>1?"s":"")+" left, ends "+fmtY(r.last):""}${!r.finite?", no end date":""}</small></span><span class="amt">${r.finite?peso(r.left):"—"}</span></li>`).join("")}</ul>
        <div class="total"><span>Total debt left</span><span>${peso(debtLeft)}</span></div>`
-    : `<p class="hint">No bills yet. Add them in Setup.</p>`;
+    : `<p class="hint">${state.bills.length ? "All your bills are paid." : "No bills yet. Add them in Setup."}</p>`;
   $("saveBox").innerHTML = `<ul class="list">
       <li><span>Each payday<small>${state.savePct}% of ${peso(num(state.pay.amount))}</small></span><span class="amt">${peso(Math.round(num(state.pay.amount)*state.savePct/100))}</span></li>
       <li><span>Already moved to savings<small>ticked on the calendar</small></span><span class="amt">${peso(savedDone)}</span></li>
@@ -802,8 +808,9 @@ function fillSetup(){
 }
 function renderLists(){
   const bl = $("billList");
-  bl.innerHTML = state.bills.length ? "" : `<li><span class="hint">No bills yet.</span><span></span></li>`;
-  state.bills.forEach(b=>{
+  const open = state.bills.filter(b=>!billDone(b));
+  bl.innerHTML = open.length ? "" : `<li><span class="hint">${state.bills.length ? "All your bills are paid." : "No bills yet."}</span><span></span></li>`;
+  open.forEach(b=>{
     const li = document.createElement("li");
     const sched = b.repeat==="once" ? "One time, "+fmtY(parse(b.start)) : "Monthly from "+fmtY(parse(b.start))+(num(b.count)>0?", "+b.count+" payments":", no end");
     li.innerHTML = `<span><b>${esc(b.name)}</b> <span class="amt" style="font-family:var(--num)">${peso(num(b.amount))}</span><small>${sched}</small></span><button type="button" class="btn small" id="del-${b.id}">Remove</button>`;
